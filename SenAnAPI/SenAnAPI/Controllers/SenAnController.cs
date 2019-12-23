@@ -20,9 +20,9 @@ namespace SenAnAPI.Controllers
         }
 
         [HttpGet]
-        public int GetValue()
+        public string GetResult([FromQuery(Name = "word")] string singleWord)
         {
-            return this._TimedHostedService.GetCount();
+            return this._TimedHostedService.ReadData(singleWord);
         }
     }
 }
