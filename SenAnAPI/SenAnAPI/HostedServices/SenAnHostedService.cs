@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Data.SQLite;
+using System.Text.Json;
 
 namespace SenAnAPI.HostedServices
 {
@@ -40,29 +41,163 @@ namespace SenAnAPI.HostedServices
             return executionCount;
         }
 
-        public string ReadData(string singleWord)
+        private string CapitalizeFirstChar(string word)
         {
+            if (word.Length == 0)
+                return word;
+            else if (word.Length == 1)
+                return char.ToUpper(word[0]).ToString();
+            else
+                return char.ToUpper(word[0]).ToString() + word.Substring(1);
+        }
+
+        private Tree<string> CheckTableForEntry(string wortForm, string tableName)
+        {
+            if (string.IsNullOrEmpty(wortForm) || string.IsNullOrWhiteSpace(wortForm)) return null;
+
             SQLiteDataReader sqlite_datareader;
             SQLiteCommand sqlite_cmd;
-            string tableName = "Verb";
             sqlite_cmd = _SqliteConnection.CreateCommand();
             sqlite_cmd.CommandText = $@"
             SELECT *
             FROM {tableName}
-            WHERE Wortform = @Param1
+            WHERE Wortform = @Param1 or Wortform = @Param2
             ";
-            sqlite_cmd.Parameters.AddWithValue("@Param1", singleWord);
+            sqlite_cmd.Parameters.AddWithValue("@Param1", wortForm.ToLower());
+            sqlite_cmd.Parameters.AddWithValue("@Param2", CapitalizeFirstChar(wortForm.ToLower()));
 
             sqlite_datareader = sqlite_cmd.ExecuteReader();
 
-            string retVal = "";
+            Tree<string> retVal = new Tree<string>(tableName);
 
             while (sqlite_datareader.Read())
             {
-                retVal += "(" + sqlite_datareader.GetDecimal(0) + "|" + sqlite_datareader.GetString(1) + "|" + sqlite_datareader.GetString(2) + "|" + sqlite_datareader.GetString(3) + ")" + "\n";
+                // Worttyp: tableName
+                // ID: sqlite_datareader.GetDecimal(0)
+                // Lemma: sqlite_datareader.GetString(1)
+                // Detail: sqlite_datareader.GetString(2)
+                // Wortform: sqlite_datareader.GetString(3)
+                retVal.TryAddSubTree(sqlite_datareader.GetString(2));
             }
-            
+
             return retVal;
+        }
+
+        private Tree<string> CheckForEntryInAllTables(string singleWord)
+        {
+            Tree<string> wordTree = new Tree<string>(singleWord);
+
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Abkürzung"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Adjektiv"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Adposition"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Adverb"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Affix"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Artikel"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Formel"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Gebundenes_Lexem"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Geflügeltes_Wort"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Konjunktion"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Kontraktion"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Merkspruch"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Numerale"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Ortsnamengrundwort"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Partikel"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Pronomen"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Redewendung"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Sprichwort"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Substantiv"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Verb"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Wortverbindung"));
+
+            return wordTree;
+        }
+
+        public class Tree<K>
+        {
+            private readonly K _Key;
+            private readonly List<Tree<K>> _SubTrees;
+
+            public Tree(K key)
+            {
+                _Key = key;
+                _SubTrees = new List<Tree<K>>();
+            }
+
+            public int TryAddSubTree(K key)
+            {
+                _SubTrees.Add(new Tree<K>(key));
+
+                return _SubTrees.Count - 1;
+            }
+
+            public int TryAddSubTree(Tree<K> existingSubTree)
+            {
+                if (existingSubTree == null) return -1;
+
+                _SubTrees.Add(existingSubTree);
+
+                return _SubTrees.Count - 1;
+            }
+
+            public int TryAddFilledSubTree(Tree<K> existingSubTree)
+            {
+                if (existingSubTree == null) return -1;
+                if (existingSubTree.CountSubTrees() == 0) return -1;
+
+                _SubTrees.Add(existingSubTree);
+
+                return _SubTrees.Count - 1;
+            }
+
+            public Tree<K> GetSubTree(int subTreeIndex)
+            {
+                return _SubTrees[subTreeIndex];
+            }
+
+            public override string ToString()
+            {
+                string retVal = "";
+
+                retVal += @$"{JsonSerializer.Serialize(_Key.ToString())}:" + "{";
+                foreach(var singleSubTree in _SubTrees)
+                {
+                    retVal += singleSubTree.ToString();
+                    retVal += ",";
+                }
+                retVal = retVal.TrimEnd(',');
+                retVal += "}";
+                
+                return retVal;
+            }
+
+            public int CountSubTrees()
+            {
+                return _SubTrees.Count;
+            }
+        }
+
+        private Tree<string> ProcessSentence(string sentence)
+        {
+            Tree<string> sentenceTree = new Tree<string>(sentence);
+
+            foreach (var singleWord in sentence.Split(' ', ',', '"', '\''))
+            {
+                sentenceTree.TryAddFilledSubTree(CheckForEntryInAllTables(singleWord));
+            }
+
+            return sentenceTree;
+        }
+
+        public string ReadData(string text)
+        {
+            Tree<string> textTree = new Tree<string>("text");
+
+            foreach (var sentence in text.Split('.', '!', '?', '(', ')'))
+            {
+                textTree.TryAddFilledSubTree(ProcessSentence(sentence));
+            }
+
+            return "{" + textTree.ToString() + "}";
         }
 
         public Task StartAsync(CancellationToken stoppingToken)
