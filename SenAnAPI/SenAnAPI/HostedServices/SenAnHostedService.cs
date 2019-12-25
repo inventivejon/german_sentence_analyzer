@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Data.SQLite;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace SenAnAPI.HostedServices
 {
@@ -85,6 +86,9 @@ namespace SenAnAPI.HostedServices
 
         private Tree<string> CheckForEntryInAllTables(string singleWord)
         {
+            if (string.IsNullOrEmpty(singleWord) || string.IsNullOrWhiteSpace(singleWord))
+                return null;
+
             Tree<string> wordTree = new Tree<string>(singleWord);
 
             wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Abkürzung"));
@@ -108,6 +112,12 @@ namespace SenAnAPI.HostedServices
             wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Substantiv"));
             wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Verb"));
             wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Wortverbindung"));
+            wordTree.TryAddFilledSubTree(CheckTableForEntry(singleWord, "Satzzeichen"));
+
+            if(wordTree.CountSubTrees() == 0)
+            {
+                wordTree.TryAddSubTree("Unbekannt");
+            }
 
             return wordTree;
         }
@@ -179,8 +189,9 @@ namespace SenAnAPI.HostedServices
         private Tree<string> ProcessSentence(string sentence)
         {
             Tree<string> sentenceTree = new Tree<string>(sentence);
-
-            foreach (var singleWord in sentence.Split(' ', ',', '"', '\''))
+            string pattern = "([\\.!\\? ,\"\\\\(\\)<>])";
+            string[] substrings = Regex.Split(sentence, pattern);
+            foreach (var singleWord in substrings)
             {
                 sentenceTree.TryAddFilledSubTree(CheckForEntryInAllTables(singleWord));
             }
@@ -192,7 +203,38 @@ namespace SenAnAPI.HostedServices
         {
             Tree<string> textTree = new Tree<string>("text");
 
-            foreach (var sentence in text.Split('.', '!', '?', '(', ')'))
+            string pattern = "([\\.!\\?])";
+            string[] pattern_raw = new string[] { ".", "!", "?" };
+
+            string[] substrings = Regex.Split(text, pattern);    // Split on hyphens
+            List<string> sentences = new List<string>();
+            foreach (var sentence in substrings)
+            {
+                if (string.IsNullOrEmpty(sentence) || string.IsNullOrWhiteSpace(sentence))
+                    continue;
+
+                var patternMatch = "";
+
+                foreach(var single_pattern in pattern_raw)
+                {
+                    if(string.Equals(sentence, single_pattern))
+                    {
+                        patternMatch = single_pattern;
+                        break;
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(patternMatch) && !string.IsNullOrWhiteSpace(patternMatch) && sentences.Count > 0)
+                {
+                    sentences[sentences.Count - 1] += sentence;
+                }
+                else
+                {
+                    sentences.Add(sentence);
+                }
+            }
+
+            foreach (var sentence in sentences)
             {
                 textTree.TryAddFilledSubTree(ProcessSentence(sentence));
             }
