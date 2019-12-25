@@ -17,6 +17,8 @@ namespace SenAnAPI
 {
     public class Startup
     {
+        readonly string MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
+
         public Startup(IConfiguration configuration)
         {
             Configuration = configuration;
@@ -28,6 +30,17 @@ namespace SenAnAPI
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddControllers();
+
+            services.AddCors(options =>
+            {
+                options.AddPolicy(MyAllowSpecificOrigins,
+                builder =>
+                {
+                    builder.AllowAnyOrigin();
+                    builder.AllowAnyHeader();
+                    builder.AllowAnyMethod();
+                });
+            });
 
             services.AddSingleton<SenAnHostedService>();
             services.AddSingleton<IHostedService, SenAnHostedService>(
@@ -47,6 +60,12 @@ namespace SenAnAPI
             {
                 app.UseDeveloperExceptionPage();
             }
+            else
+            {
+                app.UseHsts();
+            }
+
+            app.UseCors(MyAllowSpecificOrigins);
 
             // Enable middleware to serve generated Swagger as a JSON endpoint.
             app.UseSwagger();

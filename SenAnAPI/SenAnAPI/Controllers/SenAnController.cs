@@ -19,10 +19,18 @@ namespace SenAnAPI.Controllers
             _TimedHostedService = timedHostedService;
         }
 
-        [HttpGet]
-        public string GetResult([FromQuery(Name = "word")] string singleWord)
+        public class ProcessFulltextParam
         {
-            return this._TimedHostedService.ReadData(singleWord);
+            public string fulltext { get; set; }
+        }
+
+        [HttpPost]
+        public string ProcessFulltext([FromBody] ProcessFulltextParam param1)
+        {
+            if (param1 != null && !string.IsNullOrEmpty(param1.fulltext) && !string.IsNullOrWhiteSpace(param1.fulltext))
+                return this._TimedHostedService.ReadData(param1.fulltext);
+            else
+                return "";
         }
     }
 }
